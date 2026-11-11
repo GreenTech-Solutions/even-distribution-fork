@@ -60,6 +60,15 @@ local function dumpBatches(player, entities, items, dropToChests, dropToOutput, 
             -- Eligibility was checked before balancing could debit seed items.
             return this.insert(player, entity, item, amount, port, true)
         end
+        local refillRequestedAmmo = requestedAmmo and requestedAmmo[item]
+        local personalAmmoMaximum
+        local startingPersonalStock
+        if refillRequestedAmmo and offer.maximum > 0 then
+            personalAmmoMaximum = ammoPolicy.personalAllowance(player, item, "normal")
+            if personalAmmoMaximum < math.huge then
+                startingPersonalStock = player:playeritemcount(item, true, false, "normal")
+            end
+        end
         if offer.maximum > 0 then
             local targets = this.filterEntities(entities, item, dropToChests, dropToOutput, balance)
             distribution.apply(player, targets, item, "normal", {
@@ -67,14 +76,18 @@ local function dumpBatches(player, entities, items, dropToChests, dropToOutput, 
                 targetPort = cleanupPort, profile = "cleanup",
             }, insert, feedback)
         end
-        if requestedAmmo and requestedAmmo[item] then
+        if refillRequestedAmmo then
+            if startingPersonalStock then
+                local used = math.max(0, startingPersonalStock - player:playeritemcount(item, true, false, "normal"))
+                personalAmmoMaximum = math.max(0, personalAmmoMaximum - used)
+            end
             local targets = ammoSlotTargets(entities, item)
             if not _(targets):is("empty") then
                 -- The batch planner applies the equipped-ammo reserve to the
                 -- live inventory again after the request-limited pass.
                 distribution.apply(player, targets, item, "normal", {
                     inventory = true, balance = balance, targetPort = function() return "ammo" end,
-                    profile = "cleanup",
+                    profile = "cleanup", personalAmmoMaximum = personalAmmoMaximum,
                 }, insert, feedback)
             end
         end
