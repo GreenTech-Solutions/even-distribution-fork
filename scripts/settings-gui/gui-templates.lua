@@ -259,13 +259,13 @@ this.templates.settingsWindow = {
 									name = "spoiled_first",
 									caption = "Spoiled first",
 									tooltip = "Offer the oldest spoilable items first. One Drag can distribute up to three freshness groups. Dump offers the oldest group per item.",
-									state = false,
+									state = true,
 									style = {bottom_margin = 8},
 									onCreated = function(self)
-										self.state = _(self.gui.player):setting("spoiledFirst") == true
+										self.state = not _(self.gui.player):setting("disableSpoiledFirst")
 									end,
 									onChanged = function(self)
-										_(self.gui.player):changeSetting("spoiledFirst", self.state)
+										_(self.gui.player):changeSetting("disableSpoiledFirst", not self.state)
 									end,
 								},
 								{

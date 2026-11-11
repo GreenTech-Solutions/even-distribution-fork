@@ -45,7 +45,7 @@ end
 
 local function dumpBatches(player, entities, items, dropToChests, dropToOutput, balance, requestedAmmo, quality)
     quality = quality or "normal"
-    local ignoreSpoilage = player:setting("spoiledFirst") ~= true
+    local ignoreSpoilage = player:setting("disableSpoiledFirst") == true
     local offY, marked = 0, metatables.new("entityAsIndex")
     for item in pairs(requestedAmmo or {}) do
         items[item] = items[item] or 0

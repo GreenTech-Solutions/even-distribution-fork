@@ -2,7 +2,7 @@
 Version: 2.2.0
 Date: 2026-11-11
   Changes:
-    - Add an opt-in Spoiled first setting. Drag can process up to three freshness groups in one action.
+    - Add a Spoiled first setting, enabled by default. Drag can process up to three freshness groups in one action.
     - Add an opt-in beta setting for dumping above-normal quality items.
     - Add a Dump ammo setting, enabled by default.
     - Offer a choice of recipe input, fuel, or both when dragging nutrients over a Biochamber that accepts both.
