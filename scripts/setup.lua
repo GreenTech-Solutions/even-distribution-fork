@@ -167,6 +167,8 @@ function setup.migrateSettings(player)
 
 	if settings.enableInventoryCleanupHotkey == nil then settings.enableInventoryCleanupHotkey = true end
 	if settings.cleanupRequestOverflow == nil       then settings.cleanupRequestOverflow = false end
+	if settings.cleanupHigherQuality == nil         then settings.cleanupHigherQuality = false end
+	if settings.cleanupDumpAmmo == nil              then settings.cleanupDumpAmmo = true end
 	if settings.dropTrashToChests == nil       		then settings.dropTrashToChests = true end
 	if settings.dropTrashToOutput == nil       		then settings.dropTrashToOutput = false end
 	if settings.cleanupUseFuelLimit == nil       	then settings.cleanupUseFuelLimit = true end
