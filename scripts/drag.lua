@@ -111,13 +111,15 @@ end
 local function distribute(player, cache, balance, choice)
     local item, quality = cache.item, cache.quality or "normal"
     local takeCar = player:setting("takeFromCar")
+    local spoiledFirst = player:setting("spoiledFirst") == true
     distribution.apply(player, cache.entities, item, quality, {
         inventory = player:setting("takeFromInventory"), car = takeCar,
         balance = balance, half = cache.half,
         -- Original drag Even Distribute offers one equal share per entity.
         -- Rejected shares stay with the player; only Cleanup retries them.
         retryFull = false,
-        freshnessPasses = true,
+        freshnessPasses = spoiledFirst,
+        ignoreSpoilage = not spoiledFirst,
         profile = "drag", quality = quality,
         targetPort = slotPortSelector(cache, choice),
     }, function(entity, amount, port)
@@ -286,6 +288,7 @@ function this.onStackTransferred(entity, player, cache) -- handle vanilla drag s
     local batch, targets = distribution.plan(player, cache.entities, item, quality, {
         inventory = takeFromInv, car = takeFromCar,
         balance = distributionMode == "balance", half = cache.half,
+        ignoreSpoilage = player:setting("spoiledFirst") ~= true,
         targetPort = slotPortSelector(cache),
     })
     distribution.preview(batch, targets, function(target, amount)

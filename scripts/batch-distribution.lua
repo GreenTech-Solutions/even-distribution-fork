@@ -39,7 +39,7 @@ function this.plan(player, entities, item, quality, options)
     local ammunition = prototypes.item[item].type == "ammo"
     -- Player stock chooses the next batch. Old items already delivered to the
     -- machines must not keep that bracket selected forever on later gestures.
-    local playerBatch = batches.select(sources, item, quality, nil, ammunition)
+    local playerBatch = batches.select(sources, item, quality, nil, ammunition, options.ignoreSpoilage)
     local targets, targetsByOwner = {}, {}
     local function addTarget(entity, inventory, port)
         local owner = inventory or plain(entity)
@@ -79,7 +79,8 @@ function this.plan(player, entities, item, quality, options)
     -- works. Balance includes ALL existing target stock of this item/quality;
     -- Even Distribute leaves that stock in place and splits only player stock.
     local includeAll = ammunition or (options.balance and function(owner) return owner ~= plain(player) end)
-    local batch = batches.select(sources, item, quality, playerBatch.count > 0 and playerBatch.bracket or nil, includeAll)
+    local batch = batches.select(sources, item, quality, playerBatch.count > 0 and playerBatch.bracket or nil,
+        includeAll, options.ignoreSpoilage)
     local playerCount, rawPlayerCount = 0, 0
     local personal = ammunition and ammoPolicy.personalAllowance(player, item, quality) or math.huge
     personal = math.min(personal, options.personalAmmoMaximum or math.huge)
@@ -235,7 +236,7 @@ local function applyOnce(player, entities, item, quality, options, insert, feedb
             batch.destination = plain(player)
             batches.insert(plain(player), item, batch.remaining, quality)
         end
-    end, options.freshnessSequence)
+    end, options.freshnessSequence, options.ignoreSpoilage)
     aggregate(targets, function(target) return target.received end, feedback)
     return playerSpent, batch.playerOffer
 end
@@ -333,7 +334,8 @@ function this.apply(player, entities, item, quality, options, insert, feedback)
         local before, spread = status()
         if spread <= 1 then break end
         applyOnce(player, entities, item, quality,
-            {balance = true, targetsOnly = true, targetPort = options.targetPort}, insert, noteFull)
+            {balance = true, targetsOnly = true, targetPort = options.targetPort,
+                ignoreSpoilage = options.ignoreSpoilage}, insert, noteFull)
         local after = status()
         if after >= before then break end
     end

@@ -45,6 +45,7 @@ end
 
 local function dumpBatches(player, entities, items, dropToChests, dropToOutput, balance, requestedAmmo, quality)
     quality = quality or "normal"
+    local ignoreSpoilage = player:setting("spoiledFirst") ~= true
     local offY, marked = 0, metatables.new("entityAsIndex")
     for item in pairs(requestedAmmo or {}) do
         items[item] = items[item] or 0
@@ -75,6 +76,7 @@ local function dumpBatches(player, entities, items, dropToChests, dropToOutput, 
             distribution.apply(player, targets, item, quality, {
                 inventory = true, trash = true, balance = balance, maximum = offer.maximum,
                 targetPort = cleanupPort, profile = "cleanup", quality = quality,
+                ignoreSpoilage = ignoreSpoilage,
             }, insert, feedback)
         end
         if refillRequestedAmmo then
@@ -89,6 +91,7 @@ local function dumpBatches(player, entities, items, dropToChests, dropToOutput, 
                 distribution.apply(player, targets, item, quality, {
                     inventory = true, balance = balance, targetPort = function() return "ammo" end,
                     profile = "cleanup", quality = quality, personalAmmoMaximum = personalAmmoMaximum,
+                    ignoreSpoilage = ignoreSpoilage,
                 }, insert, feedback)
             end
         end

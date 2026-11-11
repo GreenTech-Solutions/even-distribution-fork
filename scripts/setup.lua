@@ -152,6 +152,7 @@ function setup.migrateSettings(player)
 
 	-- default values
 	if settings.distributionMode == nil             then settings.distributionMode = "distribute" end
+	if settings.spoiledFirst == nil                 then settings.spoiledFirst = false end
 	if settings.fuelLimit == nil             		then settings.fuelLimit = 0.5 end
 	if settings.fuelLimitType == nil         		then settings.fuelLimitType = "stacks" end
 	if settings.ammoLimit == nil             		then settings.ammoLimit = 0.5 end

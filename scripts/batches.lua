@@ -22,8 +22,9 @@ end
 -- Ammo/tool stacks contain ONE partially used head item and count-1 full items.
 -- Health and spoilage apply to the complete stack. A stack may therefore span
 -- two brackets; its full tail must not accompany its partly consumed head.
-function this.parts(stack)
-    local rest = math.min(1, stack.health, 1 - stack.spoil_percent)
+function this.parts(stack, ignoreSpoilage)
+    local freshness = ignoreSpoilage and 1 or (1 - stack.spoil_percent)
+    local rest = math.min(1, stack.health, freshness)
     local head = rest
     if stack.is_ammo then
         local maximum = stack.prototype.magazine_size
@@ -66,13 +67,13 @@ function this.addEntity(sources, entity)
     end
 end
 
-function this.select(sources, item, quality, lockedBracket, includeAll)
+function this.select(sources, item, quality, lockedBracket, includeAll, ignoreSpoilage)
     quality = quality or "normal"
     local bracket, entries = 4, {}
     for _, source in ipairs(sources) do
         local s = source.stack
         if matches(s, item, quality) then
-            local head, tail, headRest, tailRest = this.parts(s)
+            local head, tail, headRest, tailRest = this.parts(s, ignoreSpoilage)
             if not lockedBracket then
                 bracket = math.min(bracket, head)
                 if s.count > 1 then bracket = math.min(bracket, tail) end
@@ -224,12 +225,13 @@ function this.replace(player, target, item, amount, quality, takeCar, takeTrash)
     return n
 end
 
-function this.run(batch, budget, callback, rollbackOnNoMove)
+function this.run(batch, budget, callback, rollbackOnNoMove, ignoreSpoilage)
     assert(not active, "Nested distribution batch")
     batch.remaining = math.min(batch.count, budget or batch.count)
     if batch.remaining <= 0 then return end
     local initialRemaining = batch.remaining
-    local originalSpoilage = prepare(batch, rollbackOnNoMove)
+    local originalSpoilage
+    if not ignoreSpoilage then originalSpoilage = prepare(batch, rollbackOnNoMove) end
     batch.scratch = game.create_inventory(1)
     active = batch
     local ok, err = pcall(callback, batch)
