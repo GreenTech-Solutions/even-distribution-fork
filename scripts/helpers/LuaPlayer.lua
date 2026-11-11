@@ -32,67 +32,34 @@ function player:droprange()
 	return math.min(self.reach_distance * config.rangeMultiplier, self:setting("cleanupDropRange"))
 end
 
-local function collectDumpOffers(contents, trash, requests, anyQualityRequests, defaultTrash, useMinimum, dumpAmmo)
-    local requestedAmmo = {}
-    if not dumpAmmo then
-        for item in pairs(trash) do
-            if prototypes.item[item].type == "ammo" then trash[item] = nil end
-        end
-    end
-    for item, count in pairs(contents) do
-        local isAmmo = prototypes.item[item].type == "ammo"
-        if dumpAmmo or not isAmmo then
-            local targetAmount = count
-            local slot = requests[item] or anyQualityRequests[item]
-            if not slot then
-                targetAmount = defaultTrash[item]
-            elseif useMinimum and slot.count > 0 then
-                targetAmount = slot.count
-            elseif slot.max_count ~= nil then
-                targetAmount = slot.max_count
-            end
-            if slot and isAmmo and item ~= "atomic-bomb" and (targetAmount == nil or targetAmount > 0) then
-                requestedAmmo[item] = true
-            end
-            if targetAmount ~= nil and count > targetAmount then
-                trash[item] = (trash[item] or 0) + count - targetAmount
-            end
-        end
-    end
-    return trash, requestedAmmo
-end
+function player:trashItems()
+	local cleanupRequestOverflow = self:setting("cleanupRequestOverflow")
+	local defaultTrash           = storage.defaultTrash
+	local trash                  = self:contents("character_trash")
+	local logisticSlots          = self:has("valid", "character") and _(self.character):logisticSlots() or {}
 
-function player:dumpOffers()
-    local byQuality = self:setting("cleanupHigherQuality") == true
-    local useMinimum = self:setting("cleanupRequestOverflow")
-    local dumpAmmo = self:setting("cleanupDumpAmmo") ~= false
-    local contents = self:contents(nil, byQuality)
-    local trash = self:contents("character_trash", byQuality)
-    local requests = self:has("valid", "character") and _(self.character):logisticSlots(byQuality) or {}
-    if not byQuality then
-        contents, trash, requests = {normal = contents}, {normal = trash}, {normal = requests}
-    end
+	for item,count in pairs(self:contents()) do
 
-    local offers = {}
-    local anyQualityRequests = requests.any or {}
-    for quality in pairs(contents) do
-        trash[quality] = trash[quality] or {}
-    end
-    for quality, trashItems in pairs(trash) do
-        local items, requestedAmmo = collectDumpOffers(contents[quality] or {}, trashItems, requests[quality] or {},
-            anyQualityRequests, storage.defaultTrash, useMinimum, dumpAmmo)
-        if next(items) or next(requestedAmmo) then
-            offers[#offers + 1] = {quality = quality, items = items, requestedAmmo = requestedAmmo}
-        end
-    end
-    if #offers > 1 then
-        table.sort(offers, function(a, b)
-            local levelA, levelB = prototypes.quality[a.quality].level, prototypes.quality[b.quality].level
-            if levelA ~= levelB then return levelA < levelB end
-            return a.quality < b.quality
-        end)
-    end
-    return offers
+		local targetAmount = count
+		local slot = logisticSlots[item]
+
+		if not slot then -- default if no logistic slot with this item
+			targetAmount = defaultTrash[item]
+
+		elseif cleanupRequestOverflow and slot.count > 0 then -- request overflow
+			targetAmount = slot.count
+
+		elseif slot.max_count ~= nil then -- max value set to infinity = no autotrash
+			targetAmount = slot.max_count
+		end
+
+		if targetAmount ~= nil then
+			local surplus = count - targetAmount
+			if surplus > 0 then trash[item] = (trash[item] or 0) + surplus end
+		end
+	end
+	
+	return trash
 end
 
 function player:playeritemcount(item, includeInv, includeCar, quality)
@@ -119,20 +86,16 @@ function player:playeritemcount(item, includeInv, includeCar, quality)
 	return count
 end
 
-function player:playercontents(byQuality)
-    local contents = self:contents("main", byQuality)
-    local cursor = self.cursor_stack
-    if cursor and cursor.valid_for_read then
-        local item, quality = cursor.name, cursor.quality.name
-        if byQuality then
-            contents[quality] = contents[quality] or {}
-            local items = contents[quality]
-            items[item] = (items[item] or 0) + cursor.count
-        elseif quality == "normal" then
-            contents[item] = (contents[item] or 0) + cursor.count
-        end
-    end
-    return contents
+function player:playercontents()
+	local contents     = self:contents("main")
+	local cursor_stack = self.cursor_stack
+	
+	if cursor_stack and cursor_stack.valid_for_read and cursor_stack.quality.name == "normal" then
+		local item = cursor_stack.name
+		contents[item] = (contents[item] or 0) + cursor_stack.count
+	end
+		   
+	return contents
 end
 
 function player:removeItems(item, amount, takeFromInv, takeFromCar, takeFromTrash, quality)

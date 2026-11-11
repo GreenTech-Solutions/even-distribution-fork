@@ -255,20 +255,6 @@ this.templates.settingsWindow = {
 									}
 								},
 								{
-									type = "checkbox",
-									name = "spoiled_first",
-									caption = "Spoiled first",
-									tooltip = "Offer the oldest spoilable items first. One Drag can distribute up to three freshness groups. Dump offers the oldest group per item.",
-									state = true,
-									style = {bottom_margin = 8},
-									onCreated = function(self)
-										self.state = not _(self.gui.player):setting("disableSpoiledFirst")
-									end,
-									onChanged = function(self)
-										_(self.gui.player):changeSetting("disableSpoiledFirst", not self.state)
-									end,
-								},
-								{
 									type = "flow",
 									direction = "horizontal",
 									style = {
@@ -685,32 +671,6 @@ this.templates.settingsWindow = {
 									onChanged = function(self, event)
 										local player = _(self.gui.player)
 										player:changeSetting("cleanupUseFuelLimit", self.state)
-									end,
-								},
-								{
-									type = "checkbox",
-									name = "cleanup_higher_quality",
-									caption = "[img=utility/warning_icon] Dump higher-quality items (Beta)",
-									tooltip = "Beta: Dump can transfer valuable items above Normal quality to compatible destinations. Quality and personal requests are checked separately.",
-									state = false,
-									onCreated = function(self)
-										self.state = _(self.gui.player):setting("cleanupHigherQuality") == true
-									end,
-									onChanged = function(self)
-										_(self.gui.player):changeSetting("cleanupHigherQuality", self.state)
-									end,
-								},
-								{
-									type = "checkbox",
-									name = "cleanup_dump_ammo",
-									caption = "Dump ammo",
-									tooltip = "Include ammunition when using Inventory Cleanup. Drag can still distribute ammunition.",
-									state = true,
-									onCreated = function(self)
-										self.state = _(self.gui.player):setting("cleanupDumpAmmo") ~= false
-									end,
-									onChanged = function(self)
-										_(self.gui.player):changeSetting("cleanupDumpAmmo", self.state)
 									end,
 								},
 								{

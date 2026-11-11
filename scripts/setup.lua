@@ -152,7 +152,6 @@ function setup.migrateSettings(player)
 
 	-- default values
 	if settings.distributionMode == nil             then settings.distributionMode = "distribute" end
-	if settings.disableSpoiledFirst == nil          then settings.disableSpoiledFirst = false end
 	if settings.fuelLimit == nil             		then settings.fuelLimit = 0.5 end
 	if settings.fuelLimitType == nil         		then settings.fuelLimitType = "stacks" end
 	if settings.ammoLimit == nil             		then settings.ammoLimit = 0.5 end
@@ -168,8 +167,6 @@ function setup.migrateSettings(player)
 
 	if settings.enableInventoryCleanupHotkey == nil then settings.enableInventoryCleanupHotkey = true end
 	if settings.cleanupRequestOverflow == nil       then settings.cleanupRequestOverflow = false end
-	if settings.cleanupHigherQuality == nil         then settings.cleanupHigherQuality = false end
-	if settings.cleanupDumpAmmo == nil              then settings.cleanupDumpAmmo = true end
 	if settings.dropTrashToChests == nil       		then settings.dropTrashToChests = true end
 	if settings.dropTrashToOutput == nil       		then settings.dropTrashToOutput = false end
 	if settings.cleanupUseFuelLimit == nil       	then settings.cleanupUseFuelLimit = true end

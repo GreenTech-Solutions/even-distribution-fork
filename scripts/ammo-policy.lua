@@ -92,8 +92,7 @@ end
 
 -- Weapon slots are never distribution sources. Their equipped item/quality
 -- protects a total of 100 items on the character, including main and cursor.
--- Each action can move up to 100 equipped magazines from personal stock.
--- Vehicle cargo and trash do not count toward the personal reserve.
+-- Vehicle cargo and trash are not counted as a personal combat reserve.
 function this.personalAllowance(player, item, quality)
     player, quality = plain(player), quality or "normal"
     local character = player.character
@@ -109,7 +108,7 @@ function this.personalAllowance(player, item, quality)
     local main = player.get_main_inventory()
     local total = equipped + (main and main.valid and main.get_item_count{name=item,quality=quality} or 0)
     if matches(player.cursor_stack, item, quality) then total = total + player.cursor_stack.count end
-    return math.min(100, math.max(0, total - 100))
+    return math.max(0, total - 100)
 end
 
 return this

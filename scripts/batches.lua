@@ -22,9 +22,8 @@ end
 -- Ammo/tool stacks contain ONE partially used head item and count-1 full items.
 -- Health and spoilage apply to the complete stack. A stack may therefore span
 -- two brackets; its full tail must not accompany its partly consumed head.
-function this.parts(stack, ignoreSpoilage)
-    local freshness = ignoreSpoilage and 1 or (1 - stack.spoil_percent)
-    local rest = math.min(1, stack.health, freshness)
+function this.parts(stack)
+    local rest = math.min(1, stack.health, 1 - stack.spoil_percent)
     local head = rest
     if stack.is_ammo then
         local maximum = stack.prototype.magazine_size
@@ -67,13 +66,13 @@ function this.addEntity(sources, entity)
     end
 end
 
-function this.select(sources, item, quality, lockedBracket, includeAll, ignoreSpoilage)
+function this.select(sources, item, quality, lockedBracket, includeAll)
     quality = quality or "normal"
     local bracket, entries = 4, {}
     for _, source in ipairs(sources) do
         local s = source.stack
         if matches(s, item, quality) then
-            local head, tail, headRest, tailRest = this.parts(s, ignoreSpoilage)
+            local head, tail, headRest, tailRest = this.parts(s)
             if not lockedBracket then
                 bracket = math.min(bracket, head)
                 if s.count > 1 then bracket = math.min(bracket, tail) end
@@ -107,12 +106,11 @@ function this.select(sources, item, quality, lockedBracket, includeAll, ignoreSp
     return {entries = selected, item = item, quality = quality, bracket = bracket, count = count}
 end
 
-local function prepare(batch, rollbackOnNoMove)
+local function prepare(batch)
     -- Retain .4's weighted freshness merge, restricted to the locked bracket.
     -- The unselected brackets are neither removed nor rewritten.
     if prototypes.item[batch.item].get_spoil_ticks(batch.quality) <= 0 then return end
     local groups = {}
-    local originalSpoilage = rollbackOnNoMove and {}
     for _, entry in ipairs(batch.entries) do
         if entry.limit > 0 and entry.limit == entry.stack.count then
             -- Other properties can also make an item the most-used third.
@@ -131,13 +129,9 @@ local function prepare(batch, rollbackOnNoMove)
         for _, entry in ipairs(group.entries) do
             -- Spoilable stacks normally have no partial head. If a mod combines
             -- both properties, don't rewrite an unselected full tail.
-            if originalSpoilage and originalSpoilage[entry.stack] == nil then
-                originalSpoilage[entry.stack] = entry.stack.spoil_percent
-            end
             entry.stack.spoil_percent = mean
         end
     end
-    return originalSpoilage
 end
 
 local function payload(batch, entry, amount)
@@ -225,24 +219,17 @@ function this.replace(player, target, item, amount, quality, takeCar, takeTrash)
     return n
 end
 
-function this.run(batch, budget, callback, rollbackOnNoMove, ignoreSpoilage)
+function this.run(batch, budget, callback)
     assert(not active, "Nested distribution batch")
     batch.remaining = math.min(batch.count, budget or batch.count)
     if batch.remaining <= 0 then return end
-    local initialRemaining = batch.remaining
-    local originalSpoilage
-    if not ignoreSpoilage then originalSpoilage = prepare(batch, rollbackOnNoMove) end
+    prepare(batch)
     batch.scratch = game.create_inventory(1)
     active = batch
     local ok, err = pcall(callback, batch)
     active = nil
     batch.scratch.destroy()
     batch.scratch = nil
-    if originalSpoilage and batch.remaining == initialRemaining then
-        for stack, spoilPercent in pairs(originalSpoilage) do
-            stack.spoil_percent = spoilPercent
-        end
-    end
     if not ok then error(err) end
 end
 

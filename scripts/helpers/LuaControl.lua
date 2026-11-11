@@ -36,7 +36,7 @@ function control:requesterPoint()
     end
 end
 
-function control:logisticSlots(byQuality)
+function control:logisticSlots() -- fetch all requests as a dict[name -> CompiledLogisticFilter]
 	local logisticSlots = {}
 	local logisticPoint = _(self:requesterPoint())
 
@@ -45,12 +45,7 @@ function control:logisticSlots(byQuality)
 
         if filters then
             _(filters):each(function(__, filter)
-                if not filter or not filter.name then return end
-                local quality = filter.quality or (byQuality and "any" or "normal")
-                if byQuality then
-                    logisticSlots[quality] = logisticSlots[quality] or {}
-                    logisticSlots[quality][filter.name] = filter
-                elseif quality == "normal" then
+                if filter and filter.name and (filter.quality == nil or filter.quality == "normal") then
                     logisticSlots[filter.name] = filter
                 end
             end)
@@ -118,9 +113,9 @@ function control:inventory(name)
     return self.get_inventory(defines.inventory[name])
 end
 
-function control:contents(name, byQuality)
+function control:contents(name)
     if name == nil and self.is_player() then 
-        return self:playercontents(byQuality)
+        return self:playercontents() 
     end
 
     local inv = self:inventory(name)
@@ -129,11 +124,7 @@ function control:contents(name, byQuality)
     local contents = inv.get_contents()
     local contents_converted = {}
     for __, content in pairs(contents) do
-        if byQuality then
-            local quality = content.quality
-            contents_converted[quality] = contents_converted[quality] or {}
-            contents_converted[quality][content.name] = content.count
-        elseif content.quality == "normal" then
+        if content.quality == "normal" then
             contents_converted[content.name] = content.count
         end
     end
