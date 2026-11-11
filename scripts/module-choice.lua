@@ -1,16 +1,32 @@
 local choice = {}
 local windowName = "ed_module_choice"
 
-function choice.open(player)
+local options = {
+    module = {locale = "ed-module-choice", ports = {"input", "modules", "cancel"}},
+    nutrients = {locale = "ed-nutrient-choice", ports = {"input", "fuel", "both", "cancel"}},
+}
+
+function choice.allows(kind, port)
+    local option = options[kind]
+    if not option or port == "cancel" then return false end
+    for _, allowed in ipairs(option.ports) do
+        if port == allowed then return true end
+    end
+    return false
+end
+
+function choice.open(player, kind)
+    local option = options[kind]
+    choice.close(player)
     local window = player.gui.screen.add{
         type = "frame", name = windowName, direction = "vertical",
-        caption = {"ed-module-choice.title"},
+        caption = {option.locale .. ".title"},
     }
-    window.add{type = "label", caption = {"ed-module-choice.prompt"}}
+    window.add{type = "label", caption = {option.locale .. ".prompt"}}
     local buttons = window.add{type = "flow", direction = "horizontal"}
-    for _, port in ipairs({"input", "modules", "cancel"}) do
+    for _, port in ipairs(option.ports) do
         buttons.add{
-            type = "button", name = port, caption = {"ed-module-choice." .. port},
+            type = "button", name = port, caption = {option.locale .. "." .. port},
             style = port == "cancel" and "red_button" or nil,
         }
     end
