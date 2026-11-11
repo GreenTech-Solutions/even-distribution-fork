@@ -36,6 +36,7 @@ function player:trashItems()
 	local cleanupRequestOverflow = self:setting("cleanupRequestOverflow")
 	local defaultTrash           = storage.defaultTrash
 	local trash                  = self:contents("character_trash")
+	local requestedAmmo          = {}
 	local logisticSlots          = self:has("valid", "character") and _(self.character):logisticSlots() or {}
 
 	for item,count in pairs(self:contents()) do
@@ -53,13 +54,20 @@ function player:trashItems()
 			targetAmount = slot.max_count
 		end
 
+		-- A personal request can still reserve ammo for ordinary Dump targets.
+		-- Compatible weapon slots may draw from that stock in a separate pass.
+		if slot and item ~= "atomic-bomb" and (targetAmount == nil or targetAmount > 0)
+			and prototypes.item[item].type == "ammo" then
+			requestedAmmo[item] = true
+		end
+
 		if targetAmount ~= nil then
 			local surplus = count - targetAmount
 			if surplus > 0 then trash[item] = (trash[item] or 0) + surplus end
 		end
 	end
 	
-	return trash
+	return trash, requestedAmmo
 end
 
 function player:playeritemcount(item, includeInv, includeCar, quality)
