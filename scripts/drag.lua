@@ -117,6 +117,7 @@ local function distribute(player, cache, balance, choice)
         -- Original drag Even Distribute offers one equal share per entity.
         -- Rejected shares stay with the player; only Cleanup retries them.
         retryFull = false,
+        freshnessPasses = true,
         profile = "drag", quality = quality,
         targetPort = slotPortSelector(cache, choice),
     }, function(entity, amount, port)
