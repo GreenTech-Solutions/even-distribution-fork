@@ -29,21 +29,22 @@ local function blockedCleanupTarget(entity, item, prechecked)
     return entity.type == "reactor" or entity.type == "fusion-reactor"
 end
 
-local function ammoSlotTargets(entities, item)
+local function ammoSlotTargets(entities, item, quality)
     local targets = metatables.new("entityAsIndex")
     local prototype = prototypes.item[item]
     for _index, entity in ipairs(entities) do
         entity = _(entity)
         local inventory = entity:inventory("ammo")
         if inventory and (entity.type == "car" or entity.type == "spider-vehicle" or entity:supportsAmmo(prototype))
-            and inventory.can_insert({name = item, quality = "normal", count = 1}) then
+            and inventory.can_insert({name = item, quality = quality, count = 1}) then
             targets[entity] = entity
         end
     end
     return targets
 end
 
-local function dumpBatches(player, entities, items, dropToChests, dropToOutput, balance, requestedAmmo)
+local function dumpBatches(player, entities, items, dropToChests, dropToOutput, balance, requestedAmmo, quality)
+    quality = quality or "normal"
     local offY, marked = 0, metatables.new("entityAsIndex")
     for item in pairs(requestedAmmo or {}) do
         items[item] = items[item] or 0
@@ -58,36 +59,36 @@ local function dumpBatches(player, entities, items, dropToChests, dropToOutput, 
         end
         local function insert(entity, amount, port)
             -- Eligibility was checked before balancing could debit seed items.
-            return this.insert(player, entity, item, amount, port, true)
+            return this.insert(player, entity, item, amount, port, true, quality)
         end
         local refillRequestedAmmo = requestedAmmo and requestedAmmo[item]
         local personalAmmoMaximum
         local startingPersonalStock
         if refillRequestedAmmo and offer.maximum > 0 then
-            personalAmmoMaximum = ammoPolicy.personalAllowance(player, item, "normal")
+            personalAmmoMaximum = ammoPolicy.personalAllowance(player, item, quality)
             if personalAmmoMaximum < math.huge then
-                startingPersonalStock = player:playeritemcount(item, true, false, "normal")
+                startingPersonalStock = player:playeritemcount(item, true, false, quality)
             end
         end
         if offer.maximum > 0 then
-            local targets = this.filterEntities(entities, item, dropToChests, dropToOutput, balance)
-            distribution.apply(player, targets, item, "normal", {
+            local targets = this.filterEntities(entities, item, dropToChests, dropToOutput, balance, quality)
+            distribution.apply(player, targets, item, quality, {
                 inventory = true, trash = true, balance = balance, maximum = offer.maximum,
-                targetPort = cleanupPort, profile = "cleanup",
+                targetPort = cleanupPort, profile = "cleanup", quality = quality,
             }, insert, feedback)
         end
         if refillRequestedAmmo then
             if startingPersonalStock then
-                local used = math.max(0, startingPersonalStock - player:playeritemcount(item, true, false, "normal"))
+                local used = math.max(0, startingPersonalStock - player:playeritemcount(item, true, false, quality))
                 personalAmmoMaximum = math.max(0, personalAmmoMaximum - used)
             end
-            local targets = ammoSlotTargets(entities, item)
+            local targets = ammoSlotTargets(entities, item, quality)
             if not _(targets):is("empty") then
                 -- The batch planner applies the equipped-ammo reserve to the
                 -- live inventory again after the request-limited pass.
-                distribution.apply(player, targets, item, "normal", {
+                distribution.apply(player, targets, item, quality, {
                     inventory = true, balance = balance, targetPort = function() return "ammo" end,
-                    profile = "cleanup", personalAmmoMaximum = personalAmmoMaximum,
+                    profile = "cleanup", quality = quality, personalAmmoMaximum = personalAmmoMaximum,
                 }, insert, feedback)
             end
         end
@@ -99,8 +100,8 @@ function this.on_inventory_cleanup(event)
     local player = _(game.players[event.player_index])
     if player:isnot("valid player") or not player:setting("enableInventoryCleanupHotkey") then return end
 
-    local items, requestedAmmo = player:trashItems()
-    if next(items) == nil and next(requestedAmmo) == nil then return end
+    local offers = player:dumpOffers()
+    if #offers == 0 then return end
     local area = _(player.position):perimeter(player:droprange())
     local entities = this.getEntities(area, player)
     if #entities == 0 then return end
@@ -108,7 +109,9 @@ function this.on_inventory_cleanup(event)
     local dropToChests = player:setting("dropTrashToChests")
     local dropToOutput = player:setting("dropTrashToOutput")
     local balance = player:setting("distributionMode") ~= "distribute"
-    dumpBatches(player, entities, items, dropToChests, dropToOutput, balance, requestedAmmo)
+    for _, offer in ipairs(offers) do
+        dumpBatches(player, entities, offer.items, dropToChests, dropToOutput, balance, offer.requestedAmmo, offer.quality)
+    end
 end
 
 function this.distributeItems(player, entities, items, dropToChests, dropToOutput)
@@ -118,7 +121,7 @@ function this.balanceItems(player, entities, items, dropToChests, dropToOutput)
     dumpBatches(player, entities, items, dropToChests, dropToOutput, true)
 end
 
-function this.insert(player, entity, item, amount, port, prechecked)
+function this.insert(player, entity, item, amount, port, prechecked, quality)
     if blockedCleanupTarget(entity, item, prechecked) then return 0 end
 
 	local useFuelLimit = player:setting("cleanupUseFuelLimit")
@@ -128,7 +131,7 @@ function this.insert(player, entity, item, amount, port, prechecked)
     port = port or cleanupPort(entity)
     if port then
         return entity:customInsert(player, item, amount, false, true, false, useFuelLimit, useAmmoLimit, false,
-            distribution.portMask(port))
+            distribution.portMask(port), quality)
     end
 
 	if entity.type == "furnace" and entity:recipe():isnot("valid") then
@@ -140,7 +143,7 @@ function this.insert(player, entity, item, amount, port, prechecked)
 			modules  = false,
 			roboport = false,
 			main     = false,
-		})
+		}, quality)
 
 	elseif entity:is("crafting machine") then
 		return entity:customInsert(player, item, amount, false, true, false, useFuelLimit, useAmmoLimit, false, {
@@ -151,7 +154,7 @@ function this.insert(player, entity, item, amount, port, prechecked)
 			modules  = false,
 			roboport = false,
 			main     = false,
-		})
+		}, quality)
 
 	elseif entity.prototype.logistic_mode == "requester" then
 		return entity:customInsert(player, item, amount, false, true, false, useFuelLimit, useAmmoLimit, true, {
@@ -162,7 +165,7 @@ function this.insert(player, entity, item, amount, port, prechecked)
 			modules  = false,
 			roboport = false,
 			main     = true,
-		})
+		}, quality)
 
 	elseif entity.type == "spider-vehicle" and entity.get_logistic_point(defines.logistic_member_index.character_requester) then
 		return entity:customInsert(player, item, amount, false, true, false, useFuelLimit, useAmmoLimit, true, {
@@ -173,7 +176,7 @@ function this.insert(player, entity, item, amount, port, prechecked)
 			modules  = false,
 			roboport = false,
 			main     = true,
-		})
+		}, quality)
 		
 	elseif entity.type == "car" or entity.type == "spider-vehicle" then
 		return entity:customInsert(player, item, amount, false, true, false, useFuelLimit, useAmmoLimit, false, {
@@ -184,7 +187,7 @@ function this.insert(player, entity, item, amount, port, prechecked)
 			modules  = false,
 			roboport = false,
 			main     = false,
-		})
+		}, quality)
 	end
 	
 	-- Default priority insertion
@@ -196,12 +199,14 @@ function this.insert(player, entity, item, amount, port, prechecked)
 		modules  = false,
 		roboport = true,
 		main     = true,
-	}) 
+	}, quality)
 end
 
-function this.filterEntities(entities, item, dropToChests, dropToOutput, balance)
+function this.filterEntities(entities, item, dropToChests, dropToOutput, balance, quality)
 	local result = metatables.new("entityAsIndex")
 	local prototype = prototypes.item[item]
+    quality = quality or "normal"
+    local stack = {name = item, quality = quality, count = 1}
 	
 	_(entities):each(function(__, entity)
 		entity = _(entity)
@@ -209,16 +214,17 @@ function this.filterEntities(entities, item, dropToChests, dropToOutput, balance
 
         -- Preserve the original Cleanup eligibility rule. A full container
         -- is not silently added as a balancing source by the Space Age layer.
-		if entity.can_insert(item) then
-			if fuel.accepts(entity.burner, prototype) and entity:inventory("fuel").can_insert(item) then
+		if entity.can_insert(stack) then
+			if fuel.accepts(entity.burner, prototype) and entity:inventory("fuel").can_insert(stack) then
 				result[entity] = entity
-			elseif entity.name == "recycler" or (entity:is("crafting machine") and entity:recipe():hasIngredient(item)) then
+			elseif entity.name == "recycler" or (entity:is("crafting machine") and entity:recipe():hasIngredient(item)
+                and (quality == "normal" or (entity:inventory("input") and entity:inventory("input").can_insert(stack)))) then
 				result[entity] = entity
-			elseif (entity.prototype.logistic_mode == "requester" or (entity.type == "spider-vehicle" and entity.get_logistic_point(defines.logistic_member_index.character_requester))) and entity:remainingRequest(item) > 0 then
+			elseif (entity.prototype.logistic_mode == "requester" or (entity.type == "spider-vehicle" and entity.get_logistic_point(defines.logistic_member_index.character_requester))) and entity:remainingRequest(item, quality) > 0 then
 				result[entity] = entity
-			elseif dropToChests and (entity.type == "container" or entity.type == "logistic-container") and entity:itemcount(item) > 0 then
+			elseif dropToChests and (entity.type == "container" or entity.type == "logistic-container") and entity:itemcount(item, nil, nil, quality) > 0 then
 				result[entity] = entity
-			elseif entity.type == "lab" and entity:inventory("lab_input").can_insert(item) then
+			elseif entity.type == "lab" and entity:inventory("lab_input").can_insert(stack) then
 				result[entity] = entity
 			elseif (entity.type == "ammo-turret" or entity.type == "artillery-turret" or entity.type == "artillery-wagon") and entity:supportsAmmo(prototype) then
 				result[entity] = entity
@@ -229,7 +235,8 @@ function this.filterEntities(entities, item, dropToChests, dropToOutput, balance
 			end
 		end
 		
-		if not result[entity] and dropToOutput and (entity.type == "furnace" or entity.type == "assembling-machine") and entity:recipe():hasProduct(item) then
+		if not result[entity] and dropToOutput and (entity.type == "furnace" or entity.type == "assembling-machine") and entity:recipe():hasProduct(item)
+            and (quality == "normal" or (entity:inventory("output") and entity:inventory("output").can_insert(stack))) then
 			result[entity] = entity
 		end
 	end)
