@@ -106,11 +106,12 @@ function this.select(sources, item, quality, lockedBracket, includeAll)
     return {entries = selected, item = item, quality = quality, bracket = bracket, count = count}
 end
 
-local function prepare(batch)
+local function prepare(batch, rollbackOnNoMove)
     -- Retain .4's weighted freshness merge, restricted to the locked bracket.
     -- The unselected brackets are neither removed nor rewritten.
     if prototypes.item[batch.item].get_spoil_ticks(batch.quality) <= 0 then return end
     local groups = {}
+    local originalSpoilage = rollbackOnNoMove and {}
     for _, entry in ipairs(batch.entries) do
         if entry.limit > 0 and entry.limit == entry.stack.count then
             -- Other properties can also make an item the most-used third.
@@ -129,9 +130,13 @@ local function prepare(batch)
         for _, entry in ipairs(group.entries) do
             -- Spoilable stacks normally have no partial head. If a mod combines
             -- both properties, don't rewrite an unselected full tail.
+            if originalSpoilage and originalSpoilage[entry.stack] == nil then
+                originalSpoilage[entry.stack] = entry.stack.spoil_percent
+            end
             entry.stack.spoil_percent = mean
         end
     end
+    return originalSpoilage
 end
 
 local function payload(batch, entry, amount)
@@ -219,17 +224,23 @@ function this.replace(player, target, item, amount, quality, takeCar, takeTrash)
     return n
 end
 
-function this.run(batch, budget, callback)
+function this.run(batch, budget, callback, rollbackOnNoMove)
     assert(not active, "Nested distribution batch")
     batch.remaining = math.min(batch.count, budget or batch.count)
     if batch.remaining <= 0 then return end
-    prepare(batch)
+    local initialRemaining = batch.remaining
+    local originalSpoilage = prepare(batch, rollbackOnNoMove)
     batch.scratch = game.create_inventory(1)
     active = batch
     local ok, err = pcall(callback, batch)
     active = nil
     batch.scratch.destroy()
     batch.scratch = nil
+    if originalSpoilage and batch.remaining == initialRemaining then
+        for stack, spoilPercent in pairs(originalSpoilage) do
+            stack.spoil_percent = spoilPercent
+        end
+    end
     if not ok then error(err) end
 end
 
