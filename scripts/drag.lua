@@ -1,7 +1,7 @@
 local fuel = require("scripts.fuel")
 local batches = require("scripts.batches")
 local distribution = require("scripts.batch-distribution")
-local moduleChoice = require("scripts.module-choice")
+local slotChoice = require("scripts.module-choice")
 local this = {}
 local util = scripts.util
 local visuals = scripts.visuals
@@ -25,22 +25,51 @@ local function moduleTargetPort(entity, stack, choice)
     return false
 end
 
-local function modulePortSelector(cache, choice)
-    if prototypes.item[cache.item].type == "module" then
-        local stack = {name = cache.item, quality = cache.quality or "normal"}
+local function choiceKind(item)
+    if item == "nutrients" then return "nutrients" end
+    local prototype = prototypes.item[item]
+    if prototype and prototype.type == "module" then return "module" end
+end
+
+local function nutrientTargetPort(entity, stack, choice)
+    if entity.name ~= "biochamber" then return end
+    local input = entity:recipe():hasIngredient(stack.name) and acceptsStack(entity:inventory("input"), stack)
+    local fuelSlot = fuel.accepts(entity.burner, prototypes.item[stack.name])
+    if choice == "input" then return input and "input" or false end
+    if choice == "fuel" then return fuelSlot and "fuel" or false end
+    if input and fuelSlot then return choice == "both" and "both" or "ask" end
+    if input then return "input" end
+    if fuelSlot then return "fuel" end
+    return false
+end
+
+local function slotPortSelector(cache, choice)
+    local kind = choiceKind(cache.item)
+    if not kind then return end
+    local stack = {name = cache.item, quality = cache.quality or "normal"}
+    if kind == "module" then
         return function(entity)
-            if choice and cache.ambiguousModuleTargets and cache.ambiguousModuleTargets[entity] then return choice end
+            if choice and cache.ambiguousSlotTargets and cache.ambiguousSlotTargets[entity] then return choice end
             return moduleTargetPort(entity, stack, choice or "input")
+        end
+    end
+    if kind == "nutrients" then
+        return function(entity)
+            local port = nutrientTargetPort(entity, stack, choice)
+            if port == "both" then return nil end
+            return port
         end
     end
 end
 
-local function findAmbiguousModuleTargets(cache)
-    if prototypes.item[cache.item].type ~= "module" then return end
+local function findAmbiguousSlotTargets(cache)
+    local kind = choiceKind(cache.item)
+    if not kind then return end
+    local targetPort = kind == "module" and moduleTargetPort or nutrientTargetPort
     local stack = {name = cache.item, quality = cache.quality or "normal"}
     local targets
     for entity in util.epairs(cache.entities) do
-        if entity.valid and moduleTargetPort(_(entity), stack) == "ask" then
+        if entity.valid and targetPort(_(entity), stack) == "ask" then
             targets = targets or metatables.new("entityAsIndex")
             targets[entity] = true
         end
@@ -89,7 +118,7 @@ local function distribute(player, cache, balance, choice)
         -- Rejected shares stay with the player; only Cleanup retries them.
         retryFull = false,
         profile = "drag", quality = quality,
-        targetPort = modulePortSelector(cache, choice),
+        targetPort = slotPortSelector(cache, choice),
     }, function(entity, amount, port)
         return entity:customInsert(player, item, amount, takeCar, false,
             player:setting("replaceItems"), player:setting("dragUseFuelLimit"),
@@ -105,7 +134,7 @@ local function startTransfer(event, half)
     local player = _(game.players[index]); if player:isnot("valid player") then return end
     local cache = _(storage.cache[index])
     local stack = player.cursor_stack
-    if stack and stack.valid_for_read and stack.prototype.type == "module" and player:setting("enableDragDistribute") then
+    if stack and stack.valid_for_read and choiceKind(stack.name) and player:setting("enableDragDistribute") then
         this.finishPending(player, cache)
         this.on_selected_entity_changed(event)
     end
@@ -179,7 +208,7 @@ function this.on_player_fast_transferred(event)
                 if cache.item and (cache.item ~= selectedEvent.item or (cache.quality or "normal") ~= (selectedEvent.quality or "normal")) then
                     this.finishPending(player, cache)
                 end
-                if prototypes.item[selectedEvent.item].type == "module" and event.is_split ~= nil then
+                if choiceKind(selectedEvent.item) and event.is_split ~= nil then
                     cache.half = event.is_split
                 end
                 cache:set{
@@ -204,13 +233,17 @@ function this.onStackTransferred(entity, player, cache) -- handle vanilla drag s
 	local item = cache.item
 	local quality = cache.quality or "normal"
 	local first = #cache.entities > 0 and util.epairs(cache.entities)() or nil
-	local isModule = prototypes.item[item].type == "module"
+	local kind = choiceKind(item)
+	local isModule = kind == "module"
 	local port
 	local eligible
 	if _(entity):is("valid") and not _(entity):isIgnored(player) then
 		if isModule then
 			port = moduleTargetPort(entity, {name = item, quality = quality})
-			eligible = not cache.awaitingModuleChoice and port
+			eligible = not cache.awaitingSlotChoice and port
+		elseif kind == "nutrients" then
+			port = nutrientTargetPort(entity, {name = item, quality = quality})
+			eligible = not cache.awaitingSlotChoice and (port or (port == nil and this.isEntityEligible(entity, item, quality)))
 		else
 			eligible = this.isEntityEligible(entity, item, quality)
 		end
@@ -233,7 +266,7 @@ function this.onStackTransferred(entity, player, cache) -- handle vanilla drag s
 			cache.markers[entity] = entity:mark(player, item)
 			cache.entities[entity] = entity
 		end
-		if port == "ask" then cache.moduleChoicePreview = true end
+		if port == "ask" then cache.slotChoicePreview = true end
 
 		if cache.itemCount == 0 then
 			player.play_sound{ path = "utility/inventory_move" }
@@ -244,7 +277,7 @@ function this.onStackTransferred(entity, player, cache) -- handle vanilla drag s
     -- over the entire selected group, after locking its consumption bracket.
     batches.undo(cache.selectedEvent and cache.selectedEvent.snapshot)
     if cache.selectedEvent then cache.selectedEvent.snapshot = nil end
-    if cache.moduleChoicePreview or cache.awaitingModuleChoice then
+    if cache.slotChoicePreview or cache.awaitingSlotChoice then
         player.clear_local_flying_texts()
         return
     end
@@ -252,7 +285,7 @@ function this.onStackTransferred(entity, player, cache) -- handle vanilla drag s
     local batch, targets = distribution.plan(player, cache.entities, item, quality, {
         inventory = takeFromInv, car = takeFromCar,
         balance = distributionMode == "balance", half = cache.half,
-        targetPort = modulePortSelector(cache),
+        targetPort = slotPortSelector(cache),
     })
     distribution.preview(batch, targets, function(target, amount)
         visuals.update(cache.markers[target], item, amount)
@@ -298,20 +331,20 @@ function this.finishPending(player, cache, choice, prompt)
         storage.distrEvents[cache.applyTick][player.index] = nil
     end
     cache.applyTick = nil
-    local ambiguous = not choice and not cache.awaitingModuleChoice and findAmbiguousModuleTargets(cache)
-    if not choice and (cache.awaitingModuleChoice or ambiguous) then
+    local ambiguous = not choice and not cache.awaitingSlotChoice and findAmbiguousSlotTargets(cache)
+    if not choice and (cache.awaitingSlotChoice or ambiguous) then
         if prompt and ambiguous then
-            cache.ambiguousModuleTargets = ambiguous
-            cache.awaitingModuleChoice = true
-            moduleChoice.open(player:toPlain())
+            cache.ambiguousSlotTargets = ambiguous
+            cache.awaitingSlotChoice = true
+            slotChoice.open(player:toPlain(), choiceKind(cache.item))
             return
         end
     else
         distribute(player, cache, player:setting("distributionMode") == "balance", choice)
     end
-    if cache.awaitingModuleChoice then
-        cache.awaitingModuleChoice = nil
-        moduleChoice.close(player:toPlain())
+    if cache.awaitingSlotChoice then
+        cache.awaitingSlotChoice = nil
+        slotChoice.close(player:toPlain())
     end
     this.resetCache(cache)
 end
@@ -323,9 +356,9 @@ function this.resetCache(cache)
 	cache.quality = nil
 	cache.selectedEvent = nil
 	cache.applyTick = nil
-	cache.awaitingModuleChoice = nil
-	cache.ambiguousModuleTargets = nil
-	cache.moduleChoicePreview = nil
+	cache.awaitingSlotChoice = nil
+	cache.ambiguousSlotTargets = nil
+	cache.slotChoicePreview = nil
 	cache.moduleDrag = nil -- Pending drags saved by earlier builds.
 	cache.cursorStackCount = nil
 	cache.itemCount = nil
@@ -337,20 +370,20 @@ end
 function this.on_gui_click(event)
     local player = game.get_player(event.player_index)
     if not player then return end
-    local port = moduleChoice.button(player, event.element)
+    local port = slotChoice.button(player, event.element)
     if not port then return end
     local cache = storage.cache[event.player_index]
-    if not cache or not cache.awaitingModuleChoice then return end
+    if not cache or not cache.awaitingSlotChoice then return end
     player = _(player)
-    local choice = (port == "input" or port == "modules") and player:setting("enableDragDistribute") and port
+    local choice = slotChoice.allows(choiceKind(cache.item), port) and player:setting("enableDragDistribute") and port
     this.finishPending(player, cache, choice)
 end
 
 function this.on_gui_closed(event)
     local player = game.get_player(event.player_index)
-    if not player or not moduleChoice.isWindow(player, event.element) then return end
+    if not player or not slotChoice.isWindow(player, event.element) then return end
     local cache = storage.cache[event.player_index]
-    if cache and cache.awaitingModuleChoice then this.finishPending(_(player), cache) end
+    if cache and cache.awaitingSlotChoice then this.finishPending(_(player), cache) end
 end
 
 function this.on_pre_player_mined_item(event) -- remove mined/dead entities from cache
@@ -380,10 +413,10 @@ function this.on_player_died(event) -- resets distribution cache and events for 
 	
 	if cache then
         local applyTick = cache.applyTick
-        if cache.awaitingModuleChoice then
+        if cache.awaitingSlotChoice then
             local player = game.get_player(event.player_index)
-            cache.awaitingModuleChoice = nil
-            if player then moduleChoice.close(player) end
+            cache.awaitingSlotChoice = nil
+            if player then slotChoice.close(player) end
         end
         cache.moduleDrag = nil
         this.resetCache(cache)
@@ -399,8 +432,11 @@ this.on_player_left_game = this.on_player_died
 
 function this.on_configuration_changed()
     for index, cache in pairs(storage.cache or {}) do
-        local prototype = cache.item and prototypes.item[cache.item]
-        if cache.moduleDrag or (prototype and prototype.type == "module") then
+        if cache.moduleDrag or cache.awaitingModuleChoice or (cache.item and choiceKind(cache.item)) then
+            if cache.awaitingModuleChoice then cache.awaitingSlotChoice = true end
+            cache.awaitingModuleChoice = nil
+            cache.ambiguousModuleTargets = nil
+            cache.moduleChoicePreview = nil
             this.on_player_died{player_index = index}
         end
     end
