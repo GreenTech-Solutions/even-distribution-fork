@@ -29,41 +29,73 @@ local function blockedCleanupTarget(entity, item, prechecked)
     return entity.type == "reactor" or entity.type == "fusion-reactor"
 end
 
-function this.on_inventory_cleanup(event)
-	local player   = _(game.players[event.player_index]); if player:isnot("valid player") or not player:setting("enableInventoryCleanupHotkey") then return end
-	local items    = _(player:trashItems())             ; if items:is("empty") then return end
-	local area     = _(player.position):perimeter(player:droprange())
-	local entities = _(this.getEntities(area, player))  ; if entities:is("empty") then return end
-	local dropToChests = player:setting("dropTrashToChests")
-	local dropToOutput = player:setting("dropTrashToOutput")
-
-	if player:setting("distributionMode") == "distribute" then
-		this.distributeItems(player, entities, items, dropToChests, dropToOutput)
-	else
-		this.balanceItems(player, entities, items, dropToChests, dropToOutput)
-	end
+local function ammoSlotTargets(entities, item)
+    local targets = metatables.new("entityAsIndex")
+    local prototype = prototypes.item[item]
+    for _index, entity in ipairs(entities) do
+        entity = _(entity)
+        local inventory = entity:inventory("ammo")
+        if inventory and (entity.type == "car" or entity.type == "spider-vehicle" or entity:supportsAmmo(prototype))
+            and inventory.can_insert({name = item, quality = "normal", count = 1}) then
+            targets[entity] = entity
+        end
+    end
+    return targets
 end
 
-local function dumpBatches(player, entities, items, dropToChests, dropToOutput, balance)
+local function dumpBatches(player, entities, items, dropToChests, dropToOutput, balance, requestedAmmo)
     local offY, marked = 0, metatables.new("entityAsIndex")
-    for _, offer in ipairs(ammoPolicy.orderedItems(items)) do
-        local item, maximum = offer.item, offer.maximum
-        local targets = this.filterEntities(entities, item, dropToChests, dropToOutput, balance)
-        distribution.apply(player, targets, item, "normal", {
-            inventory = true, trash = true, balance = balance, maximum = maximum,
-            targetPort = cleanupPort,
-            profile = "cleanup",
-        }, function(entity, amount, port)
-            -- Eligibility was checked before balancing could debit seed items.
-            return this.insert(player, entity, item, amount, port, true)
-        end, function(entity, inserted)
+    for item in pairs(requestedAmmo or {}) do
+        items[item] = items[item] or 0
+    end
+    for _index, offer in ipairs(ammoPolicy.orderedItems(items)) do
+        local item = offer.item
+        local function feedback(entity, inserted)
             if inserted ~= 0 then
                 entity:spawnDistributionText(player, item, inserted, offY)
                 if not marked[entity] then entity:mark(player); marked[entity] = true end
             end
-        end)
+        end
+        local function insert(entity, amount, port)
+            -- Eligibility was checked before balancing could debit seed items.
+            return this.insert(player, entity, item, amount, port, true)
+        end
+        if offer.maximum > 0 then
+            local targets = this.filterEntities(entities, item, dropToChests, dropToOutput, balance)
+            distribution.apply(player, targets, item, "normal", {
+                inventory = true, trash = true, balance = balance, maximum = offer.maximum,
+                targetPort = cleanupPort, profile = "cleanup",
+            }, insert, feedback)
+        end
+        if requestedAmmo and requestedAmmo[item] then
+            local targets = ammoSlotTargets(entities, item)
+            if not _(targets):is("empty") then
+                -- The batch planner applies the equipped-ammo reserve to the
+                -- live inventory again after the request-limited pass.
+                distribution.apply(player, targets, item, "normal", {
+                    inventory = true, balance = balance, targetPort = function() return "ammo" end,
+                    profile = "cleanup",
+                }, insert, feedback)
+            end
+        end
         offY = offY - 0.5
     end
+end
+
+function this.on_inventory_cleanup(event)
+    local player = _(game.players[event.player_index])
+    if player:isnot("valid player") or not player:setting("enableInventoryCleanupHotkey") then return end
+
+    local items, requestedAmmo = player:trashItems()
+    if next(items) == nil and next(requestedAmmo) == nil then return end
+    local area = _(player.position):perimeter(player:droprange())
+    local entities = this.getEntities(area, player)
+    if #entities == 0 then return end
+
+    local dropToChests = player:setting("dropTrashToChests")
+    local dropToOutput = player:setting("dropTrashToOutput")
+    local balance = player:setting("distributionMode") ~= "distribute"
+    dumpBatches(player, entities, items, dropToChests, dropToOutput, balance, requestedAmmo)
 end
 
 function this.distributeItems(player, entities, items, dropToChests, dropToOutput)
