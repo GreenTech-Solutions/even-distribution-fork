@@ -95,6 +95,7 @@ function this.plan(player, entities, item, quality, options)
     end
     local quota = options.half and math.min(playerCount, math.ceil(rawPlayerCount / 2)) or playerCount
     if options.maximum then quota = math.min(quota, options.maximum) end
+    batch.playerOffer = quota
     batch.count = 0
     for _, entry in ipairs(batch.entries) do
         if entry.owner == plain(player) then
@@ -140,11 +141,14 @@ end
 
 local function applyOnce(player, entities, item, quality, options, insert, feedback)
     local batch, targets = this.plan(player, entities, item, quality, options)
-    if #targets == 0 or batch.count <= 0 then return end
+    if #targets == 0 or batch.count <= 0 or (options.freshnessSequence and batch.playerOffer <= 0) then return end
     local activeTargets = {}
     for _, target in ipairs(targets) do activeTargets[#activeTargets + 1] = target end
     local total = batch.count
+    local playerOwner = plain(player)
+    local playerSpent = 0
     batch.onDebit = function(owner, count)
+        if owner == playerOwner then playerSpent = playerSpent + count end
         for _, target in ipairs(batch.targetsByOwner[owner] or {}) do
             target.current = target.current - count; target.received = target.received - count
         end
@@ -231,12 +235,52 @@ local function applyOnce(player, entities, item, quality, options, insert, feedb
             batch.destination = plain(player)
             batches.insert(plain(player), item, batch.remaining, quality)
         end
-    end)
+    end, options.freshnessSequence)
     aggregate(targets, function(target) return target.received end, feedback)
+    return playerSpent, batch.playerOffer
+end
+
+local function applyFreshnessPasses(player, entities, item, quality, options, insert, feedback)
+    local pass = {}
+    for key, value in pairs(options) do pass[key] = value end
+    if pass.half then
+        local sources = batches.playerSources(player, pass.inventory, pass.car, pass.trash)
+        local count = batches.select(sources, item, quality, nil, true).count
+        pass.maximum = math.min(pass.maximum or math.huge, math.ceil(count / 2))
+        pass.half = false
+    end
+    pass.freshnessSequence = true
+    pass.retryFull = true
+    local totals, order = {}, {}
+    local function record(entity, amount, full)
+        local owner = plain(entity)
+        local total = totals[owner]
+        if not total then
+            total = {entity = entity, amount = 0}
+            totals[owner] = total
+            order[#order + 1] = total
+        end
+        total.amount = total.amount + amount
+        total.full = total.full or full
+    end
+    for _ = 1, 3 do
+        local spent, offered = applyOnce(player, entities, item, quality, pass, insert, record)
+        if not spent or spent == 0 or spent < offered then break end
+        if pass.maximum then
+            pass.maximum = pass.maximum - spent
+            if pass.maximum <= 0 then break end
+        end
+    end
+    for _, total in ipairs(order) do
+        feedback(total.entity, total.amount, total.full)
+    end
 end
 
 function this.apply(player, entities, item, quality, options, insert, feedback)
     local prototype = prototypes.item[item]
+    if options.freshnessPasses and prototype.get_spoil_ticks(quality) > 0 then
+        return applyFreshnessPasses(player, entities, item, quality, options, insert, feedback)
+    end
     local mergesUsedItems = prototype.type == "ammo" or (prototype.get_durability(quality) or 0) > 0
     if not options.balance or not mergesUsedItems then
         return applyOnce(player, entities, item, quality, options, insert, feedback)
