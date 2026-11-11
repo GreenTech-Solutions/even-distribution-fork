@@ -5,6 +5,13 @@ local util = scripts.util
 local config = require("config")
 local gui = scripts["gui-tools"]
 local controller
+local unified = script.active_mods.GUI_Unifyer ~= nil
+local modGui = unified and require("mod-gui")
+local inventoryAnchor = {
+	gui = defines.relative_gui_type.controller_gui,
+	position = defines.relative_gui_position.right,
+}
+if unified then inventoryAnchor = nil end
 
 local helpers = scripts.helpers
 local _ = helpers.on
@@ -17,21 +24,19 @@ this.templates.settingsButton = {
 	sprite = "ed_logo",
 	hovered_sprite = "ed_logo",
 	clicked_sprite = "ed_logo",
-	style = {
+	style = unified and "slot_button_notext" or {
 		parent = "tool_button_blue",
 		width = 40,
 		height = 40,
 		padding = 5,
 	},
-	root = function(player) return player.gui.relative end,
-	anchor = {
-		gui      = defines.relative_gui_type.controller_gui,
-		position = defines.relative_gui_position.right,
-	},
+	root = function(player)
+		if unified then return modGui.get_button_flow(player:toPlain()) end
+		return player.gui.relative
+	end,
+	anchor = inventoryAnchor,
 	onChanged = function(self, event)
-		local player = _(self.gui.player)
-		controller.destroyButton(player)
-		controller.buildGUI(player)
+		controller.toggleGUI(_(self.gui.player))
 	end,
 }
 
@@ -112,11 +117,8 @@ this.templates.settingsWindow = {
 	name = "ed_settings_window",
 	direction = "vertical",
 	--caption = "Even Distribution",
-	root = function(player) return player.gui.relative end,
-	anchor = {
-		gui      = defines.relative_gui_type.controller_gui,
-		position = defines.relative_gui_position.right,
-	},
+	root = function(player) return unified and player.gui.screen or player.gui.relative end,
+	anchor = inventoryAnchor,
 	children = {
 		{
 			type = "flow",
@@ -169,23 +171,22 @@ this.templates.settingsWindow = {
 					clicked_sprite = "utility/close_black",
 					style = "frame_action_button",
 					onChanged = function(self, event)
-						local player = _(self.gui.player)
-						controller.destroyGUI(player)
-						controller.buildButton(player)
+						controller.closeGUI(_(self.gui.player))
 					end,
 				},
 			}
 		},
 		{
 			type = "scroll-pane",
+			name = "settings_content",
 			vertical_scroll_policy = "auto-and-reserve-space",
 			style = {
 				parent = "list_box_scroll_pane", -- "control_settings_scroll_pane", --"scroll_pane_with_dark_background_under_subheader",
 				minimal_width = 450, --530, -- 350,
 				-- minimal_height = 344, -- Inventory GUI height
 				-- maximal_height = 600,
-				vertically_stretchable = true,
-				vertically_squashable = true,
+				vertically_stretchable = not unified,
+				vertically_squashable = not unified,
 			},
 			children = {
 				{
@@ -413,7 +414,7 @@ this.templates.settingsWindow = {
 										self.visible = not settings.global["disable-distribute"].value
 									end,
 									onChanged = function(self, event)
-										self.parent.parent.frame_content.visible = self.state
+										self.parent.parent.frame_content.visible = unified or self.state
 										self.parent.frame_caption.enabled = self.state
 
 										local player = _(self.gui.player)
@@ -435,7 +436,7 @@ this.templates.settingsWindow = {
 							name = "frame_content",
 							direction = "vertical",
 							onCreated = function(self)
-								self.visible = _(self.gui.player):setting("enableDragDistribute")
+								self.visible = unified or _(self.gui.player):setting("enableDragDistribute")
 							end,
 							children = 
 							{
@@ -603,7 +604,7 @@ this.templates.settingsWindow = {
 										self.visible = not settings.global["disable-inventory-cleanup"].value
 									end,
 									onChanged = function(self, event)
-										self.parent.parent.frame_content.visible = self.state
+										self.parent.parent.frame_content.visible = unified or self.state
 										self.parent.frame_caption.enabled = self.state
 
 										local player = _(self.gui.player)
@@ -625,7 +626,7 @@ this.templates.settingsWindow = {
 							name = "frame_content",
 							direction = "vertical",
 							onCreated = function(self)
-								self.visible = _(self.gui.player):setting("enableInventoryCleanupHotkey")
+										self.visible = unified or _(self.gui.player):setting("enableInventoryCleanupHotkey")
 							end,
 							children = 
 							{
@@ -646,8 +647,9 @@ this.templates.settingsWindow = {
 								{
 									type = "checkbox",
 									name = "checkbox_request_overflow",
-									caption = {"settings-gui.cleanup-request-overflow"},
-									state = true,
+									caption = {"", {"settings-gui.cleanup-request-overflow"}, " [img=info]"},
+									tooltip = {"settings-gui.cleanup-request-overflow-description"},
+									state = false,
 									onCreated = function(self)
 										local player = _(self.gui.player)
 										self.state = player:setting("cleanupRequestOverflow")
@@ -704,7 +706,7 @@ this.templates.settingsWindow = {
 									type = "checkbox",
 									name = "drop_trash_to_output",
 									caption = {"settings-gui.drop-trash-to-output"},
-									state = true,
+									state = false,
 									onCreated = function(self)
 										local player = _(self.gui.player)
 										self.state = player:setting("dropTrashToOutput")
@@ -746,6 +748,7 @@ this.templates.settingsWindow = {
 								{
 									type = "sprite-button",
 									name = "expand_advanced",
+									visible = not unified,
 									sprite = "utility/expand",
 									hovered_sprite = "utility/expand",
 									clicked_sprite = "utility/expand",
@@ -770,7 +773,7 @@ this.templates.settingsWindow = {
 							type = "flow",
 							name = "frame_content",
 							direction = "vertical",
-							visible = false,
+							visible = unified,
 							-- onCreated = function(self)
 							-- 	self.visible = _(self.gui.player):setting("enableInventoryCleanupHotkey")
 							-- end,
@@ -965,7 +968,8 @@ this.templates.settingsWindow = {
 									{
 										{
 											type = "label",
-											caption = {"settings-gui.ignored-entities"},
+											caption = {"", {"settings-gui.ignored-entities"}, " [img=info]"},
+											tooltip = {"settings-gui.ignored-entities-description"},
 											style = {
 												top_margin = 10,
 											},

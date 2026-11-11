@@ -81,7 +81,7 @@ data:extend{
 		name = "cleanup-logistic-request-overflow",
 		order = "zzz",
 		setting_type = "runtime-per-user",
-		default_value = true,
+		default_value = false,
 		hidden = true,
 	},
 	{

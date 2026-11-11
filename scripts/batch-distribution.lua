@@ -61,7 +61,7 @@ function this.plan(player, entities, item, quality, options)
                 -- draw balancing stock from recycler outputs or spent fuel.
                 local inventory = entity:inventory(port)
                 if inventory then addTarget(entity, inventory, port) end
-            else
+            elseif port ~= false then
                 local consumesTwice = entity:is("crafting machine") and entity:recipe():hasIngredient(item)
                     and fuel.accepts(entity.burner, prototypes.item[item])
                 local fuelInventory = consumesTwice and entity:inventory("fuel")

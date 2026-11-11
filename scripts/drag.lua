@@ -1,6 +1,7 @@
 local fuel = require("scripts.fuel")
 local batches = require("scripts.batches")
 local distribution = require("scripts.batch-distribution")
+local moduleChoice = require("scripts.module-choice")
 local this = {}
 local util = scripts.util
 local visuals = scripts.visuals
@@ -9,6 +10,43 @@ local config = require("config")
 
 local helpers = scripts.helpers
 local _ = helpers.on
+
+local function acceptsStack(inventory, stack)
+    return inventory and (inventory.can_insert(stack) or inventory.get_item_count(stack) > 0)
+end
+
+local function moduleTargetPort(entity, stack, choice)
+    local input = acceptsStack(entity:inventory("input"), stack)
+    local slots = acceptsStack(entity:inventory("modules"), stack)
+    if input and slots then return choice or "ask" end
+    if input then return "input" end
+    if slots then return "modules" end
+    if acceptsStack(entity:inventory("main"), stack) then return "main" end
+    return false
+end
+
+local function modulePortSelector(cache, choice)
+    if prototypes.item[cache.item].type == "module" then
+        local stack = {name = cache.item, quality = cache.quality or "normal"}
+        return function(entity)
+            if choice and cache.ambiguousModuleTargets and cache.ambiguousModuleTargets[entity] then return choice end
+            return moduleTargetPort(entity, stack, choice or "input")
+        end
+    end
+end
+
+local function findAmbiguousModuleTargets(cache)
+    if prototypes.item[cache.item].type ~= "module" then return end
+    local stack = {name = cache.item, quality = cache.quality or "normal"}
+    local targets
+    for entity in util.epairs(cache.entities) do
+        if entity.valid and moduleTargetPort(_(entity), stack) == "ask" then
+            targets = targets or metatables.new("entityAsIndex")
+            targets[entity] = true
+        end
+    end
+    return targets
+end
 
 function this.on_tick(event) -- handles distribution events
     -- Visit only snapshots due now; idle players need no per-tick scan.
@@ -31,21 +69,17 @@ function this.on_tick(event) -- handles distribution events
 			local player = _(game.players[player_index])
 	
 			if player:is("valid player") then
-				if player:setting("distributionMode") == "distribute" then
-					this.distributeItems(player, cache)
-				else
-					this.balanceItems(player, cache)
-				end
+				this.finishPending(player, cache, nil, true)
+			else
+				this.resetCache(cache)
 			end
-
-			this.resetCache(cache)
 		end
 
 		distrEvents[event.tick] = nil
 	end
 end
 
-local function distribute(player, cache, balance)
+local function distribute(player, cache, balance, choice)
     local item, quality = cache.item, cache.quality or "normal"
     local takeCar = player:setting("takeFromCar")
     distribution.apply(player, cache.entities, item, quality, {
@@ -55,6 +89,7 @@ local function distribute(player, cache, balance)
         -- Rejected shares stay with the player; only Cleanup retries them.
         retryFull = false,
         profile = "drag", quality = quality,
+        targetPort = modulePortSelector(cache, choice),
     }, function(entity, amount, port)
         return entity:customInsert(player, item, amount, takeCar, false,
             player:setting("replaceItems"), player:setting("dragUseFuelLimit"),
@@ -65,21 +100,24 @@ local function distribute(player, cache, balance)
     end)
 end
 
-function this.distributeItems(player, cache) distribute(player, cache, false) end
-function this.balanceItems(player, cache) distribute(player, cache, true) end
+local function startTransfer(event, half)
+    local index = event.player_index
+    local player = _(game.players[index]); if player:isnot("valid player") then return end
+    local cache = _(storage.cache[index])
+    local stack = player.cursor_stack
+    if stack and stack.valid_for_read and stack.prototype.type == "module" and player:setting("enableDragDistribute") then
+        this.finishPending(player, cache)
+        this.on_selected_entity_changed(event)
+    end
+    cache.half = half
+end
 
 function this.on_fast_entity_transfer_hook(event)
-	local index        = event.player_index
-	local player       = _(game.players[index]); if player:isnot("valid player") then return end
-	local cache        = _(storage.cache[index])
-	cache.half = false
+    startTransfer(event, false)
 end
 
 function this.on_fast_entity_split_hook(event)
-	local index        = event.player_index
-	local player       = _(game.players[index]); if player:isnot("valid player") then return end
-	local cache        = _(storage.cache[index])
-	cache.half = true
+    startTransfer(event, true)
 end
 
 function this.on_selected_entity_changed(event)
@@ -141,6 +179,9 @@ function this.on_player_fast_transferred(event)
                 if cache.item and (cache.item ~= selectedEvent.item or (cache.quality or "normal") ~= (selectedEvent.quality or "normal")) then
                     this.finishPending(player, cache)
                 end
+                if prototypes.item[selectedEvent.item].type == "module" and event.is_split ~= nil then
+                    cache.half = event.is_split
+                end
                 cache:set{
 					item             = selectedEvent.item,
                     quality          = selectedEvent.quality or "normal",
@@ -163,9 +204,20 @@ function this.onStackTransferred(entity, player, cache) -- handle vanilla drag s
 	local item = cache.item
 	local quality = cache.quality or "normal"
 	local first = #cache.entities > 0 and util.epairs(cache.entities)() or nil
+	local isModule = prototypes.item[item].type == "module"
+	local port
+	local eligible
+	if _(entity):is("valid") and not _(entity):isIgnored(player) then
+		if isModule then
+			port = moduleTargetPort(entity, {name = item, quality = quality})
+			eligible = not cache.awaitingModuleChoice and port
+		else
+			eligible = this.isEntityEligible(entity, item, quality)
+		end
+	end
 
-	if _(entity):is("valid") and not _(entity):isIgnored(player) and this.isEntityEligible(entity, item, quality) and 
-	   (_(first):isnot("valid") or ((first.type == "car" or  first.type == "spider-vehicle") and (entity.type == "car" or  entity.type == "spider-vehicle"))
+	if eligible and
+	   (isModule or _(first):isnot("valid") or ((first.type == "car" or  first.type == "spider-vehicle") and (entity.type == "car" or  entity.type == "spider-vehicle"))
 	   				 		    or ((first.type ~= "car" and first.type ~= "spider-vehicle") and (entity.type ~= "car" and entity.type ~= "spider-vehicle"))) then
 	
 		local distrEvents = storage.distrEvents -- register new distribution event
@@ -181,6 +233,7 @@ function this.onStackTransferred(entity, player, cache) -- handle vanilla drag s
 			cache.markers[entity] = entity:mark(player, item)
 			cache.entities[entity] = entity
 		end
+		if port == "ask" then cache.moduleChoicePreview = true end
 
 		if cache.itemCount == 0 then
 			player.play_sound{ path = "utility/inventory_move" }
@@ -191,10 +244,15 @@ function this.onStackTransferred(entity, player, cache) -- handle vanilla drag s
     -- over the entire selected group, after locking its consumption bracket.
     batches.undo(cache.selectedEvent and cache.selectedEvent.snapshot)
     if cache.selectedEvent then cache.selectedEvent.snapshot = nil end
+    if cache.moduleChoicePreview or cache.awaitingModuleChoice then
+        player.clear_local_flying_texts()
+        return
+    end
 
     local batch, targets = distribution.plan(player, cache.entities, item, quality, {
         inventory = takeFromInv, car = takeFromCar,
         balance = distributionMode == "balance", half = cache.half,
+        targetPort = modulePortSelector(cache),
     })
     distribution.preview(batch, targets, function(target, amount)
         visuals.update(cache.markers[target], item, amount)
@@ -205,8 +263,11 @@ end
 
 function this.isEntityEligible(entity, item, quality)
 	quality = quality or "normal"
-	local prototype = prototypes.item[item]
 	entity = _(entity)
+	local prototype = prototypes.item[item]
+	if prototype.type == "module" then
+		return moduleTargetPort(entity, {name = item, quality = quality}) ~= false
+	end
 	
 	if entity.can_insert{ name = item, quality = quality } then
 		return true
@@ -224,8 +285,6 @@ function this.isEntityEligible(entity, item, quality)
 		return true
 	elseif entity.type == "roboport" and (prototype.type == "repair-tool" or (prototype.place_result and prototype.place_result.max_payload_size ~= nil)) then
 		return true
-	elseif entity.prototype.module_inventory_size and entity.prototype.module_inventory_size > 0 and prototype.type == "module" then
-		return true
 	elseif entity:inventory("main") then
 		return true
 	end
@@ -233,15 +292,26 @@ function this.isEntityEligible(entity, item, quality)
 	return false
 end
 
-function this.finishPending(player, cache)
+function this.finishPending(player, cache, choice, prompt)
     if not cache.item then return end
     if cache.applyTick and storage.distrEvents[cache.applyTick] then
         storage.distrEvents[cache.applyTick][player.index] = nil
     end
-    if player:setting("distributionMode") == "balance" then
-        this.balanceItems(player, cache)
+    cache.applyTick = nil
+    local ambiguous = not choice and not cache.awaitingModuleChoice and findAmbiguousModuleTargets(cache)
+    if not choice and (cache.awaitingModuleChoice or ambiguous) then
+        if prompt and ambiguous then
+            cache.ambiguousModuleTargets = ambiguous
+            cache.awaitingModuleChoice = true
+            moduleChoice.open(player:toPlain())
+            return
+        end
     else
-        this.distributeItems(player, cache)
+        distribute(player, cache, player:setting("distributionMode") == "balance", choice)
+    end
+    if cache.awaitingModuleChoice then
+        cache.awaitingModuleChoice = nil
+        moduleChoice.close(player:toPlain())
     end
     this.resetCache(cache)
 end
@@ -253,11 +323,34 @@ function this.resetCache(cache)
 	cache.quality = nil
 	cache.selectedEvent = nil
 	cache.applyTick = nil
+	cache.awaitingModuleChoice = nil
+	cache.ambiguousModuleTargets = nil
+	cache.moduleChoicePreview = nil
+	cache.moduleDrag = nil -- Pending drags saved by earlier builds.
 	cache.cursorStackCount = nil
 	cache.itemCount = nil
 	cache.half = false
 	cache.entities = metatables.new("entityAsIndex")
 	visuals.unmark(cache)
+end
+
+function this.on_gui_click(event)
+    local player = game.get_player(event.player_index)
+    if not player then return end
+    local port = moduleChoice.button(player, event.element)
+    if not port then return end
+    local cache = storage.cache[event.player_index]
+    if not cache or not cache.awaitingModuleChoice then return end
+    player = _(player)
+    local choice = (port == "input" or port == "modules") and player:setting("enableDragDistribute") and port
+    this.finishPending(player, cache, choice)
+end
+
+function this.on_gui_closed(event)
+    local player = game.get_player(event.player_index)
+    if not player or not moduleChoice.isWindow(player, event.element) then return end
+    local cache = storage.cache[event.player_index]
+    if cache and cache.awaitingModuleChoice then this.finishPending(_(player), cache) end
 end
 
 function this.on_pre_player_mined_item(event) -- remove mined/dead entities from cache
@@ -287,7 +380,13 @@ function this.on_player_died(event) -- resets distribution cache and events for 
 	
 	if cache then
         local applyTick = cache.applyTick
-		this.resetCache(cache)
+        if cache.awaitingModuleChoice then
+            local player = game.get_player(event.player_index)
+            cache.awaitingModuleChoice = nil
+            if player then moduleChoice.close(player) end
+        end
+        cache.moduleDrag = nil
+        this.resetCache(cache)
 		
 		local distrEvents = storage.distrEvents -- remove distribution event
 		if applyTick and distrEvents[applyTick] then
@@ -297,5 +396,14 @@ function this.on_player_died(event) -- resets distribution cache and events for 
 end
 
 this.on_player_left_game = this.on_player_died
+
+function this.on_configuration_changed()
+    for index, cache in pairs(storage.cache or {}) do
+        local prototype = cache.item and prototypes.item[cache.item]
+        if cache.moduleDrag or (prototype and prototype.type == "module") then
+            this.on_player_died{player_index = index}
+        end
+    end
+end
 
 return this

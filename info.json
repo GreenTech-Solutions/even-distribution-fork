@@ -1,6 +1,6 @@
 {
   "name": "even-distribution-fork",
-  "version": "2.1.7",
+  "version": "2.1.9",
   "factorio_version": "2.1",
   "title": "Even Distribution Fork",
   "author": "Jhorr (fork), 321freddy (original)",
@@ -9,7 +9,18 @@
   "description": "Keeping Even Distribution up to date and fixing issues as they arise until 321freddy returns.",
   "dependencies": [
     "base >= 2.1.20",
+    "+ space-age",
     "! even-distribution",
+    "! even-distribution-updated",
+    "! even-distribution-reborn",
+    "! even-distribution-21",
+    "! even-distribution-fix",
+    "! even-distribution-fixed",
+    "! even_distribution",
+    "! even-distribution_for_krastorio2",
+    "! EvenDistributionLite",
+    "! angelbob-spaceage-even-distribution-patch",
+    "+ GUI_Unifyer",
     "(?) modlist-ui"
   ],
   "migrates_from": [

@@ -1,4 +1,23 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.1.9
+Date: 2026-11-11
+  Changes:
+    - Ask where to put modules whenever a drag includes a target that accepts them as both ingredients and installed modules.
+    - Open all settings sections from the GUI Unifier button.
+    - Turn off minimum-request cleanup and machine output insertion by default.
+  Bugfixes:
+    - Keep the settings contents visible when opened from the GUI Unifier button.
+---------------------------------------------------------------------------------------------------
+Version: 2.1.8
+Date: 2026-11-11
+  Changes:
+    - Open Even Distribution settings from the shared mod button bar when GUI Unifier is enabled.
+    - Recommend Space Age and declare conflicts with other Even Distribution variants.
+  Bugfixes:
+    - Restore the vertical offset of distribution markers on Spidertrons.
+    - Recognize possible item outputs even when the minimum recipe yield is zero.
+    - Use the first target to choose module drag behavior. Start on a recycler to use native transfers, or start on a recipe input to distribute modules only as ingredients.
+---------------------------------------------------------------------------------------------------
 Version: 2.1.7
 Date: 2026-11-04
   Bugfixes:
