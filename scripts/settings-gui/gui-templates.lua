@@ -675,6 +675,32 @@ this.templates.settingsWindow = {
 								},
 								{
 									type = "checkbox",
+									name = "cleanup_higher_quality",
+									caption = "[img=utility/warning_icon] Dump higher-quality items (Beta)",
+									tooltip = "Beta: Dump can transfer valuable items above Normal quality to compatible destinations. Quality and personal requests are checked separately.",
+									state = false,
+									onCreated = function(self)
+										self.state = _(self.gui.player):setting("cleanupHigherQuality") == true
+									end,
+									onChanged = function(self)
+										_(self.gui.player):changeSetting("cleanupHigherQuality", self.state)
+									end,
+								},
+								{
+									type = "checkbox",
+									name = "cleanup_dump_ammo",
+									caption = "Dump ammo",
+									tooltip = "Include ammunition when using Inventory Cleanup. Drag can still distribute ammunition.",
+									state = true,
+									onCreated = function(self)
+										self.state = _(self.gui.player):setting("cleanupDumpAmmo") ~= false
+									end,
+									onChanged = function(self)
+										_(self.gui.player):changeSetting("cleanupDumpAmmo", self.state)
+									end,
+								},
+								{
+									type = "checkbox",
 									name = "cleanup_ammo_limit",
 									caption = {"settings-gui.use-ammo-limit"},
 									state = true,
