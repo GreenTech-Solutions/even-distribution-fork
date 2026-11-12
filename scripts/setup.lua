@@ -259,6 +259,9 @@ function setup.addDefaultLogisticSlots(player)
 		local section = logisticPoint.add_section("Even Distribution (default settings)")
 		-- section.active = false
 		logisticPoint.enabled = false
+		-- The group is shared by the force: when another player has already filled it, its slots are taken
+		-- ("Filter conflicts with filter in slot N" for the second player who joins).
+		if section.filters_count > 0 then return end
 
 		_(config.defaultLogisticSlots)
 			:wherepair(
